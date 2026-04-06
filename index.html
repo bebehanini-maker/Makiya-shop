@@ -220,7 +220,7 @@ tr:last-child td{border-bottom:none}tr:hover td{background:rgba(201,168,76,0.02)
 </style>
 </head>
 <body>
-<div id="app"><div class="loading">⏳ جاري تحميل المتجر...</div></div>
+<div id="app"></div>
 
 <script>
 // ── Firebase Config ──
@@ -279,42 +279,43 @@ let galIdx = 0;
 let formImages = [], formFeatures = [''];
 
 async function initDB() {
-  
-  
-  // Load from localStorage first (instant)
+  // Show instantly from localStorage or defaults
   const cached = localStorage.getItem('makiya_products');
-  if (cached) { try { products = JSON.parse(cached); render(); } catch(e){} }
+  try { products = cached ? JSON.parse(cached) : DEFAULT_PRODUCTS; } catch(e) { products = DEFAULT_PRODUCTS; }
+  const cachedO = localStorage.getItem('makiya_orders');
+  try { orders = cachedO ? JSON.parse(cachedO) : []; } catch(e) { orders = []; }
+  render(); // Show immediately!
 
-  // Then load from Firebase (sync)
-  try {
-    const d = await fbGet('products');
-    if (d && typeof d === 'object') {
-      const arr = Array.isArray(d) ? d : Object.values(d);
-      if (arr.length > 0) {
-        products = arr;
-        localStorage.setItem('makiya_products', JSON.stringify(arr));
-      } else if (!cached) {
-        products = DEFAULT_PRODUCTS;
-        await fbSet('products', DEFAULT_PRODUCTS);
-        localStorage.setItem('makiya_products', JSON.stringify(DEFAULT_PRODUCTS));
+  // Then sync with Firebase in background
+  setTimeout(async () => {
+    try {
+      const d = await Promise.race([
+        fbGet('products'),
+        new Promise((_,r) => setTimeout(() => r(new Error('timeout')), 5000))
+      ]);
+      if (d && typeof d === 'object') {
+        const arr = Array.isArray(d) ? d : Object.values(d);
+        if (arr.length > 0) {
+          products = arr;
+          localStorage.setItem('makiya_products', JSON.stringify(arr));
+          render();
+        } else {
+          await fbSet('products', DEFAULT_PRODUCTS);
+        }
+      } else {
+        await fbSet('products', products);
       }
-    } else if (!cached) {
-      products = DEFAULT_PRODUCTS;
-      await fbSet('products', DEFAULT_PRODUCTS);
-      localStorage.setItem('makiya_products', JSON.stringify(DEFAULT_PRODUCTS));
-    }
-  } catch(e) {
-    if (!cached) products = DEFAULT_PRODUCTS;
-  }
+    } catch(e) {}
 
-  try {
-    const d = await fbGet('orders');
-    if (d && typeof d === 'object') {
-      orders = Array.isArray(d) ? d : Object.values(d);
-    } else { orders = []; }
-  } catch(e) { orders = []; }
-
-  render();
+    try {
+      const d = await fbGet('orders');
+      if (d && typeof d === 'object') {
+        orders = Array.isArray(d) ? d : Object.values(d);
+        localStorage.setItem('makiya_orders', JSON.stringify(orders));
+        render();
+      }
+    } catch(e) {}
+  }, 100);
 }
 
 async function saveProducts(p) {
